@@ -277,7 +277,7 @@ func (s *PrivateAccountAPI) SendTransaction(ctx context.Context, args SendTxArgs
 
 	var tx *types.Transaction
 	data := common.FromHex(args.Data)
-	isPrivate := len(args.PrivateFor) > 0
+	isPrivate := args.PrivateFor != nil
 	if isPrivate {
 		data, err = private.P.Send(data, args.PrivateFrom, args.PrivateFor)
 		if err != nil {
@@ -377,7 +377,7 @@ func (a *Async) save(ctx context.Context, s *PublicTransactionPoolAPI, args Send
 	if err != nil {
 		return common.Hash{}, err
 	}
-	return submitTransaction(ctx, s.b, tx, signature, len(args.PrivateFor) > 0)
+	return submitTransaction(ctx, s.b, tx, signature, args.PrivateFor != nil)
 }
 
 func newAsync(n int) *Async {
@@ -578,28 +578,9 @@ func (s *PublicBlockChainAPI) GetUncleCountByBlockHash(ctx context.Context, bloc
 }
 
 // GetQuorumPayload returns the contents of a private transaction
+// DEPRECATED in favor of quorum.GetPrivatePayload.
 func (s *PublicBlockChainAPI) GetQuorumPayload(digestHex string) (string, error) {
-	if private.P == nil {
-		return "", fmt.Errorf("PrivateTransactionManager is not enabled")
-	}
-	if len(digestHex) < 3 {
-		return "", fmt.Errorf("Invalid digest hex")
-	}
-	if digestHex[:2] == "0x" {
-		digestHex = digestHex[2:]
-	}
-	b, err := hex.DecodeString(digestHex)
-	if err != nil {
-		return "", err
-	}
-	if len(b) != 64 {
-		return "", fmt.Errorf("Expected a Quorum digest of length 64, but got %d", len(b))
-	}
-	data, err := private.P.Receive(b)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("0x%x", data), nil
+	return private.GetPayload(digestHex)
 }
 
 // GetCode returns the code stored at the given address in the state for the given block number.
@@ -1193,8 +1174,10 @@ func submitTransaction(ctx context.Context, b Backend, tx *types.Transaction, si
 		from, _ := signedTx.From()
 		addr := crypto.CreateAddress(from, signedTx.Nonce())
 		glog.V(logger.Info).Infof("Tx(%s) created: %s\n", signedTx.Hash().Hex(), addr.Hex())
+		logger.LogRaftCheckpoint(logger.TxCreated, signedTx.Hash().Hex(), addr.Hex())
 	} else {
 		glog.V(logger.Info).Infof("Tx(%s) to: %s\n", signedTx.Hash().Hex(), tx.To().Hex())
+		logger.LogRaftCheckpoint(logger.TxCreated, signedTx.Hash().Hex(), tx.To().Hex())
 	}
 
 	return signedTx.Hash(), nil
@@ -1219,7 +1202,7 @@ func (s *PublicTransactionPoolAPI) SendTransaction(ctx context.Context, args Sen
 
 	var tx *types.Transaction
 	data := common.FromHex(args.Data)
-	isPrivate := len(args.PrivateFor) > 0
+	isPrivate := args.PrivateFor != nil
 	if isPrivate {
 		data, err = private.P.Send(data, args.PrivateFrom, args.PrivateFor)
 		if err != nil {

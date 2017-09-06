@@ -24,6 +24,7 @@ var Modules = map[string]string{
 	"debug":      Debug_JS,
 	"ens":        ENS_JS,
 	"eth":        Eth_JS,
+	"raft":       Raft_JS,
 	"miner":      Miner_JS,
 	"net":        Net_JS,
 	"personal":   Personal_JS,
@@ -512,6 +513,32 @@ web3._extend({
 });
 `
 
+const Raft_JS = `
+web3._extend({
+       property: 'raft',
+       methods:
+       [
+       ],
+       properties:
+       [
+               new web3._extend.Property({
+                       name: 'role',
+                       getter: 'raft_role'
+               }),
+               new web3._extend.Method({
+                       name: 'addPeer',
+                       call: 'raft_addPeer',
+                       params: 1
+               }),
+               new web3._extend.Method({
+                       name: 'removePeer',
+                       call: 'raft_removePeer',
+                       params: 1
+               })
+       ]
+})
+`
+
 const Miner_JS = `
 web3._extend({
 	property: 'miner',
@@ -704,6 +731,20 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'resumeBlockMaker',
 			call: 'quorum_resumeBlockMaker'
+		}),
+		new web3._extend.Method({
+			name: 'getPrivatePayload',
+			params: 1,
+			call: 'quorum_getPrivatePayload'
+		}),
+		new web3._extend.Method({
+			name: 'runPorosity',
+			params: 1,
+			call: 'quorum_runPorosity',
+			outputFormatter: function(pr) {
+                                console.log(pr.Output);
+                                return pr.Vulnerable;
+                        }
 		})
 	],
 	properties:

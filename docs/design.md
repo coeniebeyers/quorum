@@ -14,9 +14,9 @@ A node with this role can create a block, sign the block and put the signature w
 On `block import`, nodes can verify if the block was signed by one of the nodes that have the `block maker` role.
 
 Nodes can be given no role, one of the roles or both roles through command line arguments.
-The collection of addresses with special roles is tracked within the Quorum smart contract.
+The collection of addresses with special roles is tracked within the QuorumChain smart contract.
 
-Quorum is implemented in a smart contract pre-deployed on address `0x0000000000000000000000000000000000000020` and can be found [here](https://github.com/jpmorganchase/quorum/blob/master/core/quorum/block_voting.sol).
+QuorumChain is implemented in a smart contract pre-deployed on address `0x0000000000000000000000000000000000000020` and can be found [here](https://github.com/jpmorganchase/quorum/blob/master/core/quorum/block_voting.sol).
 Voters and block makers can be added or removed and the minimum number of votes before a block is selected as winner can be configured.
 
 
@@ -27,7 +27,7 @@ Quorum supports dual state:
 - public state, accessible by all nodes within the network
 - private state, only accessible by nodes with the correct permissions
 
-The difference is made through the use of transactions with encrypted (private) and non-encrypted payloads (public).
+The difference is made through the use of transactions with encrypted (private) and non-encrypted (public) payloads.
 Nodes can determine if a transaction is private by looking at the `v` value of the signature.
 Public transactions have a `v` value of 27 or 28, private transactions have a value of 37 or 38.
 
@@ -36,7 +36,7 @@ Nodes who are not involved in the transaction cannot decrypt the payload and pro
 As a result all nodes share a common public state which is created through public transactions and have a local unique private state.
 
 This model imposes a restriction in the ability to modify state in private transactions.
-Since its a common use case that a (private) contract reads data from a public contract the virtual machine has the ability to jump into read only mode.
+Since it's a common use case for a (private) contract to read data from a public contract the virtual machine has the ability to jump into read only mode.
 For each call from a private contract to a public contract the virtual machine will change to read only mode.
 If the virtual machine is in read only mode and the code tries to make a state change the virtual machine stops execution and throws an exception.
 
@@ -48,7 +48,7 @@ S: sender, (X): private, X: public, ->: direction, []: read only mode
 2. S -> (A) -> (B)
 3. S -> (A) -> [B -> C]
 ```
-The following transaction are unsupported:
+The following transactions are unsupported:
 
 ```
 1. (S) -> A

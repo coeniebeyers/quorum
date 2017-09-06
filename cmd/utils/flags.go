@@ -46,6 +46,7 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/nat"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/pow"
+	"github.com/ethereum/go-ethereum/raft"
 	"github.com/ethereum/go-ethereum/rpc"
 	whisper "github.com/ethereum/go-ethereum/whisper/whisperv2"
 	"gopkg.in/urfave/cli.v1"
@@ -373,6 +374,26 @@ var (
 		Name:  "permissioned",
 		Usage: "If enabled, the node will allow only a defined list of nodes to connect",
 	}
+	// Raft flags
+	RaftModeFlag = cli.BoolFlag{
+		Name:  "raft",
+		Usage: "If enabled, uses Raft instead of Quorum Chain for consensus",
+	}
+	RaftBlockTimeFlag = cli.IntFlag{
+		Name:  "raftblocktime",
+		Usage: "Amount of time between raft block creations in milliseconds",
+		Value: 50,
+	}
+	RaftJoinExistingFlag = cli.IntFlag{
+		Name:  "raftjoinexisting",
+		Usage: "The raft ID to assume when joining an pre-existing cluster",
+		Value: 0,
+	}
+	RaftPortFlag = cli.IntFlag{
+		Name:  "raftport",
+		Usage: "The port to bind for the raft transport",
+		Value: 50400,
+	}
 )
 
 // MakeDataDir retrieves the currently requested data directory, terminating
@@ -655,9 +676,11 @@ func RegisterEthService(ctx *cli.Context, stack *node.Node, extra []byte) {
 		glog.V(logger.Info).Infoln("You're one of the lucky few that will try out the JIT VM (random). If you get a consensus failure please be so kind to report this incident with the block hash that failed. You can switch to the regular VM by setting --jitvm=false")
 	}
 
+	chainConfig := MakeChainConfig(ctx, stack)
+
 	ethConf := &eth.Config{
 		Etherbase:        MakeEtherbase(stack.AccountManager(), ctx),
-		ChainConfig:      MakeChainConfig(ctx, stack),
+		ChainConfig:      chainConfig,
 		SingleBlockMaker: ctx.GlobalBool(SingleBlockMakerFlag.Name),
 		DatabaseCache:    ctx.GlobalInt(CacheFlag.Name),
 		DatabaseHandles:  MakeDatabaseHandles(),
@@ -670,6 +693,7 @@ func RegisterEthService(ctx *cli.Context, stack *node.Node, extra []byte) {
 		SolcPath:         ctx.GlobalString(SolcPathFlag.Name),
 		VoteMinBlockTime: uint(ctx.GlobalInt(VoteMinBlockTimeFlag.Name)),
 		VoteMaxBlockTime: uint(ctx.GlobalInt(VoteMaxBlockTimeFlag.Name)),
+		RaftMode:         ctx.GlobalBool(RaftModeFlag.Name),
 	}
 
 	// Override any default configs in dev mode or the test net
@@ -696,10 +720,63 @@ func RegisterEthService(ctx *cli.Context, stack *node.Node, extra []byte) {
 		state.MaxTrieCacheGen = uint16(gen)
 	}
 
+	// We need a pointer to the ethereum service so we can access it from the raft
+	// service
+	var ethereum *eth.Ethereum
+
 	if err := stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
-		return eth.New(ctx, ethConf)
+		var err error
+		ethereum, err = eth.New(ctx, ethConf)
+		return ethereum, err
 	}); err != nil {
 		Fatalf("Failed to register the Ethereum service: %v", err)
+	}
+
+	if ctx.GlobalBool(RaftModeFlag.Name) {
+		blockTimeMillis := ctx.GlobalInt(RaftBlockTimeFlag.Name)
+		datadir := ctx.GlobalString(DataDirFlag.Name)
+		joinExistingId := ctx.GlobalInt(RaftJoinExistingFlag.Name)
+		raftPort := uint16(ctx.GlobalInt(RaftPortFlag.Name))
+
+		logger.DoLogRaft = true
+
+		if err := stack.Register(func(ctx *node.ServiceContext) (node.Service, error) {
+			strId := discover.PubkeyID(stack.PublicKey()).String()
+			blockTimeNanos := time.Duration(blockTimeMillis) * time.Millisecond
+			peers := stack.StaticNodes()
+
+			var myId uint16
+			var joinExisting bool
+
+			if joinExistingId > 0 {
+				myId = uint16(joinExistingId)
+				joinExisting = true
+			} else if len(peers) == 0 {
+				Fatalf("Raft-based consensus requires either (1) an initial peers list (in static-nodes.json) including this enode hash (%v), or (2) the flag --raftjoinexisting RAFT_ID, where RAFT_ID has been issued by an existing cluster member calling `raft.addPeer(ENODE_ID)` with an enode ID containing this node's enode hash.", strId)
+			} else {
+				peerIds := make([]string, len(peers))
+
+				for peerIdx, peer := range peers {
+					if !peer.HasRaftPort() {
+						Fatalf("raftport querystring parameter not specified in static-node enode ID: %v. please check your static-nodes.json file.", peer.String())
+					}
+
+					peerId := peer.ID.String()
+					peerIds[peerIdx] = peerId
+					if peerId == strId {
+						myId = uint16(peerIdx) + 1
+					}
+				}
+
+				if myId == 0 {
+					Fatalf("failed to find local enode ID (%v) amongst peer IDs: %v", strId, peerIds)
+				}
+			}
+
+			return raft.New(ctx, chainConfig, myId, raftPort, joinExisting, blockTimeNanos, ethereum, peers, datadir)
+		}); err != nil {
+			Fatalf("Failed to register the Raft service: %v", err)
+		}
 	}
 }
 

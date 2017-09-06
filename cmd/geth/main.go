@@ -157,6 +157,10 @@ participating.
 		utils.VoteMaxBlockTimeFlag,
 		utils.SingleBlockMakerFlag,
 		utils.EnableNodePermissionFlag,
+		utils.RaftModeFlag,
+		utils.RaftBlockTimeFlag,
+		utils.RaftJoinExistingFlag,
+		utils.RaftPortFlag,
 	}
 	app.Flags = append(app.Flags, debug.Flags...)
 
@@ -276,7 +280,13 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 			unlockAccount(ctx, accman, trimmed, i, passwords)
 		}
 	}
-	// Start auxiliary services
+
+	if ctx.GlobalBool(utils.RaftModeFlag.Name) {
+		return
+	}
+
+	// Start auxiliary services for Quorum Chain
+
 	var ethereum *eth.Ethereum
 	if err := stack.Service(&ethereum); err != nil {
 		utils.Fatalf("ethereum service not running: %v", err)
